@@ -183,11 +183,6 @@ export function Dashboard({
         <h2 className="text-2xl font-black text-white uppercase tracking-tight">
           Finance Dashboard
         </h2>
-        <div className="px-3 py-1 bg-gray-800/50 rounded-full border border-gray-700">
-          <span className="text-[10px] text-cyan-400 font-mono font-bold uppercase">
-            Live: Feb 6, 2026
-          </span>
-        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
