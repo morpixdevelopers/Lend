@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { supabase } from "./lib/supabase";
 import {
   LayoutDashboard,
   UserPlus,
@@ -6,6 +7,8 @@ import {
   Users,
   Menu,
   X,
+  LogOut,
+  Loader2, // Added this missing import
 } from "lucide-react";
 import { Dashboard } from "./components/Dashboard";
 import { AddMember } from "./components/AddMember";
@@ -13,6 +16,7 @@ import { TodayCollection } from "./components/TodayCollection";
 import { MembersList } from "./components/MembersList";
 import { OverdueMembers } from "./components/OverdueMembers";
 import { MemberDetails } from "./components/MemberDetails";
+import { Auth } from "./components/Auth";
 
 type Page =
   | "dashboard"
@@ -23,11 +27,35 @@ type Page =
   | "member-details";
 
 function App() {
+  const [session, setSession] = useState<any>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState<Page>("dashboard");
-  const [previousPage, setPreviousPage] = useState<Page>("dashboard"); // Tracks the previous context
+  const [previousPage, setPreviousPage] = useState<Page>("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Check current session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setAuthLoading(false);
+    });
+
+    // Listen for auth changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      setAuthLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+  };
 
   const handleSuccess = () => {
     setRefreshKey((prev) => prev + 1);
@@ -36,9 +64,8 @@ function App() {
     }
   };
 
-  // Centralized navigation helper to track history
   const navigateTo = (page: Page, memberId: string | null = null) => {
-    setPreviousPage(currentPage); // Save current page before moving
+    setPreviousPage(currentPage);
     if (memberId) setSelectedMemberId(memberId);
     setCurrentPage(page);
   };
@@ -54,9 +81,24 @@ function App() {
     { id: "members" as Page, label: "All Members", icon: Users },
   ];
 
+  // 1. Fixed Loading State (Loader2 is now defined)
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+      </div>
+    );
+  }
+
+  // 2. Auth Check
+  if (!session) {
+    return <Auth />;
+  }
+
   return (
-    <div className="min-h-screen bg-gray-900">
+    <div className="min-h-screen bg-gray-900 text-gray-100">
       <div className="flex">
+        {/* Sidebar */}
         <aside
           className={`${
             sidebarOpen ? "translate-x-0" : "-translate-x-full"
@@ -65,7 +107,9 @@ function App() {
           <div className="flex flex-col h-full">
             <div className="p-6 border-b border-gray-700">
               <div className="flex items-center justify-between">
-                <h1 className="text-2xl font-bold text-white">LendTrack</h1>
+                <h1 className="text-2xl font-bold text-white tracking-tight">
+                  LendTrack
+                </h1>
                 <button
                   onClick={() => setSidebarOpen(false)}
                   className="lg:hidden text-gray-400 hover:text-white"
@@ -73,8 +117,8 @@ function App() {
                   <X className="w-6 h-6" />
                 </button>
               </div>
-              <p className="text-gray-400 text-sm mt-1">
-                Money Lending Manager
+              <p className="text-gray-400 text-xs mt-1 font-medium uppercase tracking-wider">
+                Admin Panel
               </p>
             </div>
 
@@ -86,38 +130,41 @@ function App() {
                     setCurrentPage(item.id);
                     setSidebarOpen(false);
                   }}
-                  className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition ${
+                  className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all duration-200 ${
                     currentPage === item.id
-                      ? "bg-blue-600 text-white"
-                      : "text-gray-400 hover:bg-gray-700 hover:text-white"
+                      ? "bg-blue-600 text-white shadow-lg shadow-blue-900/20"
+                      : "text-gray-400 hover:bg-gray-700/50 hover:text-white"
                   }`}
                 >
                   <item.icon className="w-5 h-5" />
-                  <span className="font-medium">{item.label}</span>
+                  <span className="font-semibold">{item.label}</span>
                 </button>
               ))}
             </nav>
 
-            {/* <div className="p-4 border-t border-gray-700">
-              <div className="bg-gray-900 rounded-lg p-4">
-                <p className="text-gray-400 text-xs">Lend Track</p>
-                <p className="text-gray-500 text-xs mt-1">
-                  Secure Lending System
-                </p>
-              </div>
-            </div> */}
+            <div className="p-4 border-t border-gray-700">
+              <button
+                onClick={handleLogout}
+                className="w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-red-400 hover:bg-red-500/10 transition-colors group"
+              >
+                <LogOut className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
+                <span className="font-semibold">Logout</span>
+              </button>
+            </div>
           </div>
         </aside>
 
+        {/* Mobile Overlay */}
         {sidebarOpen && (
           <div
-            className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
             onClick={() => setSidebarOpen(false)}
           />
         )}
 
+        {/* Main Content */}
         <main className="flex-1 min-h-screen w-full overflow-x-hidden">
-          <header className="bg-gray-800 border-b border-gray-700 px-6 py-4">
+          <header className="bg-gray-800/50 backdrop-blur-md border-b border-gray-700 px-6 py-4 sticky top-0 z-30">
             <div className="flex items-center justify-between">
               <button
                 onClick={() => setSidebarOpen(true)}
@@ -125,19 +172,27 @@ function App() {
               >
                 <Menu className="w-6 h-6" />
               </button>
-              <div className="lg:block hidden" />
-              <div className="text-gray-400 text-sm">
+              <div className="hidden sm:flex items-center gap-2 text-gray-400 text-xs">
+                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                <span>
+                  Logged in:{" "}
+                  <b className="text-blue-400">
+                    {session.user.email?.split("@")[0]}
+                  </b>
+                </span>
+              </div>
+              <div className="text-gray-400 text-sm font-medium">
                 {new Date().toLocaleDateString("en-IN", {
-                  weekday: "long",
+                  weekday: "short",
                   year: "numeric",
-                  month: "long",
+                  month: "short",
                   day: "numeric",
                 })}
               </div>
             </div>
           </header>
 
-          <div className="p-6" key={refreshKey}>
+          <div className="p-6 max-w-7xl mx-auto" key={refreshKey}>
             {currentPage === "dashboard" && (
               <Dashboard
                 onViewOverdue={() => navigateTo("overdue")}

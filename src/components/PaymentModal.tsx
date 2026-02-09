@@ -1,6 +1,13 @@
 import React, { useState } from "react";
 import { supabase } from "../lib/supabase";
-import { X, IndianRupee, Loader2, CheckCircle2 } from "lucide-react";
+import {
+  X,
+  IndianRupee,
+  Loader2,
+  CheckCircle2,
+  AlertTriangle,
+  Wallet,
+} from "lucide-react";
 
 interface PaymentModalProps {
   loanId: string;
@@ -28,8 +35,16 @@ export function PaymentModal({
     e.preventDefault();
     const paidAmount = Number(amount);
 
-    if (isNaN(paidAmount) || paidAmount <= 0) {
-      setError("Please enter a valid amount");
+    // 1. Strict Validations
+    if (!amount || isNaN(paidAmount) || paidAmount <= 0) {
+      setError("Please enter a valid amount greater than 0");
+      return;
+    }
+
+    if (paidAmount < suggestedAmount && balanceRemaining > suggestedAmount) {
+      setError(
+        `Minimum payment of ₹${suggestedAmount.toLocaleString("en-IN")} required`,
+      );
       return;
     }
 
@@ -42,7 +57,7 @@ export function PaymentModal({
     setError("");
 
     try {
-      // 1. Fetch member details for the cycle type
+      // 2. Get Member Data
       const { data: member, error: fetchError } = await (supabase as any)
         .from("members")
         .select("collection_type, start_date")
@@ -51,10 +66,8 @@ export function PaymentModal({
 
       if (fetchError) throw fetchError;
 
-      // 2. Fetch the most recent payment to find the next due date
-      const { data: lastPayment, error: paymentFetchError } = await (
-        supabase as any
-      )
+      // 3. Get Last Payment for Next Date calculation
+      const { data: lastPayment } = await (supabase as any)
         .from("payments")
         .select("next_payment_date")
         .eq("member_id", loanId)
@@ -62,25 +75,20 @@ export function PaymentModal({
         .limit(1)
         .maybeSingle();
 
-      if (paymentFetchError) throw paymentFetchError;
-
-      // 3. Logic to calculate the NEW next_payment_date
       const baseDateStr = lastPayment?.next_payment_date || member.start_date;
-      const baseDate = new Date(baseDateStr);
-      const nextDate = new Date(baseDate);
+      const nextDate = new Date(baseDateStr);
+      const type = member.collection_type?.toLowerCase();
 
-      if (member.collection_type?.toLowerCase() === "weekly") {
-        nextDate.setDate(nextDate.getDate() + 7);
-      } else {
-        nextDate.setDate(nextDate.getDate() + 1);
-      }
+      if (type === "weekly") nextDate.setDate(nextDate.getDate() + 7);
+      else if (type === "10 days") nextDate.setDate(nextDate.getDate() + 10);
+      else if (type === "monthly") nextDate.setMonth(nextDate.getMonth() + 1);
+      else nextDate.setDate(nextDate.getDate() + 1);
 
       const nextDateStr = nextDate.toISOString().split("T")[0];
       const todayStr = new Date().toISOString().split("T")[0];
       const newBalance = Math.max(0, balanceRemaining - paidAmount);
 
-      // 4. Record the Payment in 'payments' table
-      // Matches your schema: member_id, paid_amount, previous_balance, updated_balance, paid_date, next_payment_date
+      // 4. Record Payment in 'payments' table
       const { error: paymentInsertError } = await (supabase as any)
         .from("payments")
         .insert({
@@ -94,29 +102,34 @@ export function PaymentModal({
 
       if (paymentInsertError) throw paymentInsertError;
 
-      // 5. Update the member balance and status
-      // We do NOT update next_payment_date or last_payment_date here as they aren't in your members schema
+      // 5. Update 'members' table
+      // THE FIX: Changed status to exactly 'active' or 'closed' to match your SQL check constraint
+      const finalStatus = newBalance <= 0 ? "closed" : "active";
+
       const { error: memberUpdateError } = await (supabase as any)
         .from("members")
         .update({
           balance_remaining: newBalance,
-          status: newBalance <= 0 ? "completed" : "active",
+          status: finalStatus,
         })
         .eq("id", loanId);
 
       if (memberUpdateError) throw memberUpdateError;
 
       setIsSuccess(true);
-      setTimeout(() => {
-        onSuccess();
-      }, 1500);
+      setTimeout(() => onSuccess(), 1500);
     } catch (err: any) {
       console.error("Payment Error:", err);
-      setError(err.message || "Failed to process payment");
+      setError(err.message || "Database update failed");
     } finally {
       setLoading(false);
     }
   }
+
+  const isInvalid =
+    !amount ||
+    Number(amount) <= 0 ||
+    (Number(amount) < suggestedAmount && balanceRemaining > suggestedAmount);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
@@ -129,7 +142,6 @@ export function PaymentModal({
               </div>
             </div>
             <h3 className="text-2xl font-bold text-white">Payment Recorded!</h3>
-            <p className="text-gray-400">Database updated successfully.</p>
           </div>
         ) : (
           <>
@@ -150,15 +162,25 @@ export function PaymentModal({
 
             <form onSubmit={handleSubmit} className="p-6 space-y-6">
               {error && (
-                <div className="bg-red-500/10 border border-red-500/50 text-red-500 text-sm p-3 rounded-xl">
-                  {error}
+                <div className="bg-red-500/10 border border-red-500/50 text-red-500 text-sm p-3 rounded-xl flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span className="break-words font-medium">{error}</span>
                 </div>
               )}
 
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-gray-500 uppercase tracking-wider">
-                  Amount Received (₹)
-                </label>
+                <div className="flex justify-between items-end">
+                  <label className="text-[10px] font-black text-gray-500 uppercase tracking-wider">
+                    Amount Received (₹)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setAmount(balanceRemaining.toString())}
+                    className="text-[10px] flex items-center gap-1 font-bold text-cyan-500 hover:text-cyan-400 uppercase transition-colors"
+                  >
+                    <Wallet className="w-3 h-3" /> Pay Full Balance
+                  </button>
+                </div>
                 <div className="relative">
                   <IndianRupee className="absolute left-4 top-1/2 -translate-y-1/2 text-cyan-500 w-5 h-5" />
                   <input
@@ -172,16 +194,16 @@ export function PaymentModal({
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                <div className="bg-gray-800/50 p-3 rounded-2xl border border-gray-700">
-                  <p className="text-[10px] text-gray-500 uppercase font-bold">
+                <div className="bg-gray-800/50 p-3 rounded-2xl border border-gray-800 text-center">
+                  <p className="text-[10px] text-gray-400 uppercase font-bold">
                     Current Balance
                   </p>
                   <p className="text-white font-bold">
                     ₹{balanceRemaining.toLocaleString("en-IN")}
                   </p>
                 </div>
-                <div className="bg-gray-800/50 p-3 rounded-2xl border border-gray-700">
-                  <p className="text-[10px] text-gray-500 uppercase font-bold">
+                <div className="bg-gray-800/50 p-3 rounded-2xl border border-gray-800 text-center">
+                  <p className="text-[10px] text-gray-400 uppercase font-bold">
                     New Balance
                   </p>
                   <p className="text-cyan-400 font-bold">
@@ -196,8 +218,8 @@ export function PaymentModal({
 
               <button
                 type="submit"
-                disabled={loading}
-                className="w-full bg-cyan-600 hover:bg-cyan-500 disabled:bg-gray-700 text-white py-4 rounded-2xl font-black text-lg shadow-lg transition-all flex items-center justify-center gap-2"
+                disabled={loading || isInvalid}
+                className="w-full bg-cyan-600 hover:bg-cyan-500 disabled:bg-gray-800 disabled:text-gray-600 disabled:cursor-not-allowed text-white py-4 rounded-2xl font-black text-lg shadow-lg flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
               >
                 {loading ? (
                   <Loader2 className="w-6 h-6 animate-spin" />

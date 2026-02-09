@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { UserPlus, AlertCircle } from "lucide-react";
 
@@ -11,11 +11,36 @@ export function AddMember({ onSuccess }: { onSuccess: () => void }) {
     collectionType: "daily" as "daily" | "weekly" | "10 days" | "monthly",
     loanAmount: "",
     amountGiven: "",
+    interestPercentage: "1",
     startDate: new Date().toISOString().split("T")[0],
     minPaymentAmount: "",
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // Auto-calculation logic for Daily and Weekly only
+  useEffect(() => {
+    const amount = parseFloat(formData.loanAmount) || 0;
+
+    if (formData.collectionType === "daily") {
+      const interest = 1;
+      const minPay = (amount * interest) / 100;
+      setFormData((prev) => ({
+        ...prev,
+        interestPercentage: interest.toString(),
+        minPaymentAmount: amount > 0 ? minPay.toString() : "",
+      }));
+    } else if (formData.collectionType === "weekly") {
+      const interest = 10;
+      const minPay = (amount * interest) / 100;
+      setFormData((prev) => ({
+        ...prev,
+        interestPercentage: interest.toString(),
+        minPaymentAmount: amount > 0 ? minPay.toString() : "",
+      }));
+    }
+    // Note: '10 days' and 'monthly' do nothing here, leaving fields for manual entry
+  }, [formData.collectionType, formData.loanAmount]);
 
   const calculateNextDueDate = (startDate: string, type: string) => {
     const date = new Date(startDate);
@@ -42,7 +67,6 @@ export function AddMember({ onSuccess }: { onSuccess: () => void }) {
       const amountGiven = parseFloat(formData.amountGiven) || 0;
       const totalPayable = loanAmount;
 
-      // 1. Insert into members table
       const { data: newMember, error: memberError } = await (
         supabase.from("members") as any
       )
@@ -66,7 +90,6 @@ export function AddMember({ onSuccess }: { onSuccess: () => void }) {
 
       if (memberError) throw memberError;
 
-      // 2. Insert into payments table (Opening Balance Record)
       if (newMember && newMember[0]) {
         const nextDate = calculateNextDueDate(
           formData.startDate,
@@ -97,6 +120,7 @@ export function AddMember({ onSuccess }: { onSuccess: () => void }) {
         collectionType: "daily",
         loanAmount: "",
         amountGiven: "",
+        interestPercentage: "1",
         startDate: new Date().toISOString().split("T")[0],
         minPaymentAmount: "",
       });
@@ -118,6 +142,10 @@ export function AddMember({ onSuccess }: { onSuccess: () => void }) {
     const val = e.target.value.replace(/\D/g, "");
     if (val.length <= 12) setFormData({ ...formData, aadhaarNumber: val });
   };
+
+  // Helper to check if fields should be locked
+  const isLocked =
+    formData.collectionType === "daily" || formData.collectionType === "weekly";
 
   return (
     <div className="space-y-6">
@@ -170,12 +198,13 @@ export function AddMember({ onSuccess }: { onSuccess: () => void }) {
             />
           </div>
 
-          <div className="md:col-span-2 space-y-1">
+          <div className="space-y-1">
             <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest ml-1">
               Address
             </label>
             <input
               type="text"
+              required
               placeholder="Address details"
               value={formData.address}
               onChange={(e) =>
@@ -269,17 +298,43 @@ export function AddMember({ onSuccess }: { onSuccess: () => void }) {
 
           <div className="space-y-1">
             <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest ml-1">
+              Interest Percentage *
+            </label>
+            <input
+              type="number"
+              required
+              readOnly={isLocked}
+              placeholder="0.00"
+              value={formData.interestPercentage}
+              onChange={(e) =>
+                setFormData({ ...formData, interestPercentage: e.target.value })
+              }
+              className={`w-full px-4 py-2 border rounded-lg outline-none transition-colors ${
+                isLocked
+                  ? "bg-gray-800 border-gray-700 text-gray-400 cursor-not-allowed"
+                  : "bg-gray-900 border-gray-700 text-white focus:ring-2 focus:ring-green-500"
+              }`}
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest ml-1">
               Min Payment *
             </label>
             <input
               type="number"
               required
+              readOnly={isLocked}
               placeholder="0.00"
               value={formData.minPaymentAmount}
               onChange={(e) =>
                 setFormData({ ...formData, minPaymentAmount: e.target.value })
               }
-              className="w-full px-4 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white focus:ring-2 focus:ring-green-500 outline-none"
+              className={`w-full px-4 py-2 border rounded-lg outline-none transition-colors ${
+                isLocked
+                  ? "bg-gray-800 border-gray-700 text-gray-400 cursor-not-allowed"
+                  : "bg-gray-900 border-gray-700 text-white focus:ring-2 focus:ring-green-500"
+              }`}
             />
           </div>
         </div>

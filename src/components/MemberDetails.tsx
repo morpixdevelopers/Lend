@@ -11,6 +11,8 @@ import {
   TrendingDown,
   CircleDollarSign,
   Wallet,
+  Trash2,
+  AlertCircle,
 } from "lucide-react";
 
 interface MemberInfo {
@@ -39,15 +41,17 @@ interface Transaction {
 export function MemberDetails({
   memberId,
   onBack,
-  prevScreen, // Added to track previous context
+  prevScreen,
 }: {
   memberId: string;
-  onBack: (target?: string) => void; // Modified to accept target screen
-  prevScreen?: string; // Added prop
+  onBack: (target?: string) => void;
+  prevScreen?: string;
 }) {
   const [member, setMember] = useState<MemberInfo | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     fetchMemberDetails();
@@ -90,6 +94,31 @@ export function MemberDetails({
     }
   }
 
+  async function handleDeleteMember() {
+    setIsDeleting(true);
+    try {
+      // 1. Delete all payments first (foreign key requirement)
+      await supabase.from("payments").delete().eq("member_id", memberId);
+
+      // 2. Delete the member
+      const { error } = await supabase
+        .from("members")
+        .delete()
+        .eq("id", memberId);
+
+      if (error) throw error;
+
+      // 3. Go back to previous screen
+      onBack(prevScreen);
+    } catch (error) {
+      console.error("Delete error:", error);
+      alert("Failed to delete member. Please try again.");
+    } finally {
+      setIsDeleting(false);
+      setShowDeleteConfirm(false);
+    }
+  }
+
   if (loading)
     return (
       <div className="flex justify-center p-10">
@@ -101,7 +130,6 @@ export function MemberDetails({
 
   const totalPaid = transactions.reduce((s, t) => s + t.amount, 0);
 
-  // Helper to determine the back text based on where we came from
   const getBackLabel = () => {
     if (prevScreen === "dashboard") return "Back to Dashboard";
     if (prevScreen === "collection") return "Back to Today's Collection";
@@ -109,9 +137,47 @@ export function MemberDetails({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 relative">
+      {/* Delete Confirmation Overlay */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="bg-gray-900 border border-red-900/50 p-8 rounded-3xl max-w-sm w-full text-center shadow-2xl">
+            <div className="bg-red-500/20 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+              <AlertCircle className="text-red-500 w-8 h-8" />
+            </div>
+            <h3 className="text-xl font-bold text-white mb-2">
+              Delete Member?
+            </h3>
+            <p className="text-gray-400 text-sm mb-8">
+              This will permanently remove <b>{member.name}</b> and all their
+              payment records. This action cannot be undone.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="flex-1 bg-gray-800 hover:bg-gray-700 text-white font-bold py-3 rounded-xl transition-colors"
+                disabled={isDeleting}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteMember}
+                className="flex-1 bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors"
+                disabled={isDeleting}
+              >
+                {isDeleting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  "Delete"
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <button
-        onClick={() => onBack(prevScreen)} // Pass the previous screen back to the parent
+        onClick={() => onBack(prevScreen)}
         className="flex items-center text-gray-400 hover:text-white mb-4 transition-colors"
       >
         <ArrowLeft className="mr-2 w-4 h-4" /> {getBackLabel()}
@@ -135,9 +201,17 @@ export function MemberDetails({
               </span>
             </div>
           </div>
-          <span className="px-3 py-1 bg-white/20 rounded-full text-xs font-bold uppercase tracking-wider border border-white/30">
-            {member.status}
-          </span>
+          <div className="flex flex-col items-end gap-3">
+            <span className="px-3 py-1 bg-white/20 rounded-full text-xs font-bold uppercase tracking-wider border border-white/30">
+              {member.status}
+            </span>
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/20 hover:bg-red-500 text-red-100 rounded-lg text-[10px] font-black uppercase tracking-tighter border border-red-500/30 transition-all"
+            >
+              <Trash2 className="w-3.5 h-3.5" /> Delete Member
+            </button>
+          </div>
         </div>
       </div>
 
@@ -194,7 +268,7 @@ export function MemberDetails({
           </div>
           <div>
             <p className="text-gray-500 text-[10px] uppercase font-bold mb-1">
-              Min Installment
+              INTEREST AMOUNT
             </p>
             <p className="text-white font-semibold">
               ₹{member.min_payment_amount}{" "}
